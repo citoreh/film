@@ -3,35 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>جست‌وجو در فایل‌های CSV</title>
+<title>جستجو در تیتراژ فیلمها</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  :root { --paper:#f7f4ec; --ink:#1c1a16; --muted:#7a7466; --line:#d9d3c4; --mark:#ffe58a; --file:#24504a; }
+  :root { --bg:#000; --ink:#f2f2f2; --muted:#8a8a8a; --line:#2a2a2a; --mark:#3d3400; --film:#e2b74a; }
   * { box-sizing: border-box; }
-  html, body { margin:0; background:var(--paper); color:var(--ink);
-    font-family: Vazirmatn, "Segoe UI", Tahoma, sans-serif; font-size:16px; line-height:1.8; }
-  main { max-width:860px; margin:0 auto; padding:48px 20px 96px; }
-  h1 { font-size:20px; font-weight:500; margin:0 0 20px; color:var(--muted); }
-  form { display:flex; border-bottom:2px solid var(--ink); }
-  input { flex:1; border:0; background:transparent; font:inherit; font-size:26px; padding:10px 0; outline:none; color:var(--ink); }
+  html, body { margin:0; background:var(--bg); color:var(--ink);
+    font-family: Vazirmatn, "Segoe UI", Tahoma, sans-serif; font-size:17px; line-height:1.9; }
+  main { max-width:760px; margin:0 auto; padding:56px 20px 120px; }
+  h1 { font-size:20px; font-weight:500; margin:0 0 24px; color:var(--muted); text-align:center; }
+  form { display:flex; border-bottom:1px solid var(--ink); }
+  input { flex:1; border:0; background:transparent; font:inherit; font-size:28px; padding:10px 0; outline:none; color:var(--ink); text-align:center; }
   input::placeholder { color:var(--line); }
-  input:focus-visible { box-shadow:0 3px 0 0 var(--file); }
-  .stat { margin:14px 0 36px; color:var(--muted); font-size:14px; min-height:1.8em; }
-  section { margin-bottom:40px; }
-  .file { font-weight:700; color:var(--file); font-size:18px; margin:0 0 4px; display:flex; gap:12px; align-items:baseline; }
-  .file small { font-weight:400; color:var(--muted); font-size:13px; }
-  .header { font-family:ui-monospace, Menlo, monospace; direction:ltr; text-align:right; font-size:12px; color:var(--muted); margin:0 0 8px; }
-  pre { margin:0; white-space:pre-wrap; word-break:break-word; font:inherit; border-right:3px solid var(--line); padding:2px 14px 2px 0; }
-  pre + pre { margin-top:6px; }
-  pre span.n { color:var(--muted); font-size:12px; margin-left:10px; user-select:none; }
-  mark { background:var(--mark); color:inherit; padding:0 1px; }
+  input:focus-visible { border-bottom:1px solid var(--film); }
+  .stat { margin:14px 0 48px; color:var(--muted); font-size:14px; min-height:1.9em; text-align:center; }
+  section { margin-bottom:56px; text-align:center; }
+  .film { font-weight:700; color:var(--film); font-size:22px; margin:0 0 14px; letter-spacing:.02em; }
+  .film small { font-weight:400; color:var(--muted); font-size:13px; margin-right:12px; }
+  .credit { margin:0; padding:3px 0; }
+  .credit b { font-weight:700; }
+  .credit span { font-weight:400; color:#c8c8c8; margin-right:2em; }
+  mark { background:var(--mark); color:var(--film); padding:0 2px; border-radius:2px; }
 </style>
 </head>
 <body>
 <main>
-  <h1>جست‌وجو در فایل‌های CSV</h1>
-  <form id="f"><input id="q" autofocus autocomplete="off" placeholder="نام، نقش، زمان…"></form>
+  <h1>جستجو در تیتراژ فیلمها</h1>
+  <form id="f"><input id="q" autofocus autocomplete="off" placeholder="نام یا نقش…"></form>
   <div class="stat" id="stat">در حال بارگذاری…</div>
   <div id="out"></div>
 </main>
@@ -41,7 +40,6 @@ const fa = n => n.toLocaleString("fa-IR");
 const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 // Persian-aware normalization: ي/ی, ك/ک, strip ZWNJ/tatweel, fold Arabic-Indic digits.
-// Length-preserving where possible so highlight offsets stay aligned.
 const normChar = s => s
   .replace(/[\u064A\u0649]/g, "\u06CC")
   .replace(/\u0643/g, "\u06A9")
@@ -50,16 +48,32 @@ const normChar = s => s
   .toLowerCase();
 const norm = s => normChar(s).replace(/[\u0640\u200C\u200F\u200E]/g, "");
 
+// Split a CSV line into fields (handles quoted commas). Only name and role are used.
+function fields(line) {
+  const out = []; let cur = "", inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+    else if (c === "," && !inQ) { out.push(cur); cur = ""; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
 let index = null;
 fetch("index.json?" + Date.now()).then(r => r.json()).then(d => {
-  index = d.files.map(f => ({ ...f, n: f.rows.map(norm) }));
+  index = d.files.map(f => {
+    const rows = f.rows.map(fields).map(([name = "", role = ""]) => ({ name, role }));
+    return { title: f.file.replace(/\.csv$/i, ""), rows, n: rows.map(r => norm(r.name + " " + r.role)) };
+  });
   run(true);
-}).catch(() => { stat.textContent = "index.json پیدا نشد — اول build-index.js را اجرا کنید."; });
+}).catch(() => { stat.textContent = "index.json پیدا نشد."; });
 
 function hl(raw, term) {
   const n = normChar(raw), t = normChar(term);
   let i = 0, res = "", pos;
-  while ((pos = n.indexOf(t, i)) !== -1) {
+  while (t && (pos = n.indexOf(t, i)) !== -1) {
     res += esc(raw.slice(i, pos)) + "<mark>" + esc(raw.slice(pos, pos + t.length)) + "</mark>";
     i = pos + t.length;
   }
@@ -75,23 +89,22 @@ function run(force) {
   const term = q.value.trim();
   if (!force && term === last) return; last = term;
   if (!term) {
-    stat.textContent = fa(index.length) + " فایل، " + fa(index.reduce((a, f) => a + f.rows.length, 0)) + " ردیف";
+    stat.textContent = fa(index.length) + " فیلم، " + fa(index.reduce((a, f) => a + f.rows.length, 0)) + " نفر";
     out.innerHTML = ""; return;
   }
   const t = norm(term);
   const results = [];
   for (const f of index) {
     const hits = [];
-    f.n.forEach((line, i) => { if (line.includes(t)) hits.push({ n: i + 2, raw: f.rows[i] }); });
-    if (hits.length) results.push({ file: f.file, header: f.header, hits });
+    f.n.forEach((line, i) => { if (line.includes(t)) hits.push(f.rows[i]); });
+    if (hits.length) results.push({ title: f.title, hits });
   }
   const total = results.reduce((a, f) => a + f.hits.length, 0);
-  stat.textContent = total ? fa(total) + " نتیجه در " + fa(results.length) + " فایل" : "چیزی پیدا نشد";
+  stat.textContent = total ? fa(total) + " نتیجه در " + fa(results.length) + " فیلم" : "چیزی پیدا نشد";
   out.innerHTML = results.map(f => `
     <section>
-      <p class="file">${esc(f.file)} <small>${fa(f.hits.length)} مورد</small></p>
-      <p class="header">${esc(f.header)}</p>
-      ${f.hits.map(h => `<pre><span class="n">${fa(h.n)}</span>${hl(h.raw, term)}</pre>`).join("")}
+      <p class="film">${esc(f.title)}<small>${fa(f.hits.length)} مورد</small></p>
+      ${f.hits.map(h => `<p class="credit"><b>${hl(h.name, term)}</b><span>${hl(h.role, term)}</span></p>`).join("")}
     </section>`).join("");
 }
 </script>
