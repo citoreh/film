@@ -24,6 +24,7 @@
   .credit { display:flex; justify-content:center; gap:2em; margin:0; padding:3px 0; }
   .credit b { font-weight:700; }
   .credit span { font-weight:400; color:#c8c8c8; }
+  .credit small { font-weight:400; color:var(--muted); font-size:13px; }
   mark { background:var(--mark); color:var(--film); padding:0 2px; border-radius:2px; }
 </style>
 </head>
@@ -63,9 +64,15 @@ function fields(line) {
 
 let index = null;
 fetch("index.json?" + Date.now()).then(r => r.json()).then(d => {
+  // Column detection by header name; falls back to the old positional layout (name, role, timestamp).
+  const col = (h, names) => h.findIndex(c => names.includes(norm(c)));
   index = d.files.map(f => {
-    const rows = f.rows.map(fields).map(([name = "", role = ""]) => ({ name, role }));
-    return { title: f.file.replace(/\.csv$/i, ""), rows, n: rows.map(r => norm(r.name + " " + r.role)) };
+    const h = fields(f.header);
+    let iName = col(h, ["نام", "name"]), iRole = col(h, ["نقش/سمت", "نقش", "سمت", "role"]), iSec = col(h, ["بخش", "section"]);
+    if (iName < 0) { iName = 0; iRole = 1; }
+    const rows = f.rows.map(fields).map(c => ({ name: c[iName] || "", role: c[iRole] || "", sec: iSec >= 0 ? c[iSec] || "" : "" }))
+      .filter(r => r.name);
+    return { title: f.file.replace(/\.csv$/i, ""), rows, n: rows.map(r => norm(r.name + " " + r.role + " " + r.sec)) };
   });
   run(true);
 }).catch(() => { stat.textContent = "index.json پیدا نشد."; });
@@ -104,7 +111,7 @@ function run(force) {
   out.innerHTML = results.map(f => `
     <section>
       <p class="film">${esc(f.title)}<small>${fa(f.hits.length)} مورد</small></p>
-      ${f.hits.map(h => `<p class="credit"><b>${hl(h.name, term)}</b><span>${hl(h.role, term)}</span></p>`).join("")}
+      ${f.hits.map(h => `<p class="credit"><b>${hl(h.name, term)}</b>${h.role ? `<span>${hl(h.role, term)}</span>` : ""}${h.sec ? `<small>${hl(h.sec, term)}</small>` : ""}</p>`).join("")}
     </section>`).join("");
 }
 </script>
